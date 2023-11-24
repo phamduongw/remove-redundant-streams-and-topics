@@ -1,8 +1,8 @@
 import os
 import base64
 
-
-ENV_FILE_PATH = "/opt/python/remove-redundant-streams-and-topics/.env"
+CURRENT_FILE_PATH = os.path.abspath(__file__)
+ENV_FILE_PATH = os.path.join(os.path.dirname(CURRENT_FILE_PATH), ".env")
 
 
 def read_env_file():
