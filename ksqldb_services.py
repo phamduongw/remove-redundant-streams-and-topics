@@ -1,33 +1,27 @@
-import requests
+import os
+import json
 
-URL = "http://ksqldb-1.bnh.vn:8088"
+from utils import read_env_file, getBase64Credentials
 
+read_env_file()
 
-def get_all_streams():
-    endpoint = "{}/ksql".format(URL)
-    headers = {"Content-Type": "application/json"}
-    payload = {"ksql": "LIST STREAMS EXTENDED;"}
-
-    response = requests.post(endpoint, headers=headers, json=payload)
-
-    return response.json()
+KSQLDB_URL = os.environ.get("KSQLDB_URL")
+BASE64_CREDENTIALS = getBase64Credentials(
+    os.environ.get("KSQLDB_USERNAME"), os.environ.get("KSQLDB_PASSWORD")
+)
 
 
-def drop_stream_and_delete_topic_by_name(name):
-    endpoint = "{}/ksql".format(URL)
-    headers = {"Content-Type": "application/json"}
-    payload = {"ksql": "DROP STREAM IF EXISTS {} DELETE TOPIC;".format(name)}
+def list_streams_extended():
+    command = """curl \
+    --location '{}/ksql' \
+    --header 'Content-Type: application/json' \
+    --header 'Authorization: Basic {}' \
+    --data '{{
+        "ksql": "LIST STREAMS EXTENDED;"
+    }}'""".format(
+        KSQLDB_URL, BASE64_CREDENTIALS
+    )
 
-    response = requests.post(endpoint, headers=headers, json=payload)
+    response = os.popen(command).read()
 
-    return response
-
-
-def get_stream_by_name(name):
-    endpoint = "{}/ksql".format(URL)
-    headers = {"Content-Type": "application/json"}
-    payload = {"ksql": "DESCRIBE {};".format(name)}
-
-    response = requests.post(endpoint, headers=headers, json=payload)
-
-    return response.json()
+    return json.loads(response)

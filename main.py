@@ -1,71 +1,96 @@
-import requests
-from ksqldb_services import (
-    get_all_streams,
-    drop_stream_and_delete_topic_by_name,
-    get_stream_by_name,
-)
+from ksqldb_services import list_streams_extended
 from kconnect_services import get_all_connectors, get_connector_config_by_name
 
-URL = "http://ksqldb-1.bnh.vn:8088/ksql"
 
-used_topics = []
-dependencies = []
-deleted_stream = []
+def get_all_streams_and_topics():
+    response = list_streams_extended()
+
+    if type(response) == dict:
+        raise RuntimeError(response)
+
+    all_streams_and_topics = []
+
+    source_descriptions = response[0]["sourceDescriptions"]
+
+    for source_description in source_descriptions:
+        sinks = []
+
+        for read_query in source_description["readQueries"]:
+            for sink in read_query["sinks"]:
+                sinks.append(sink)
+
+        all_streams_and_topics.append(
+            {
+                "name": source_description["name"],
+                "sinks": sinks,
+                "topic": source_description["topic"],
+            }
+        )
+
+    return all_streams_and_topics
 
 
-def get_used_topics():
-    connectors = get_all_connectors()
+def get_used_ods_topics():
+    used_ods_topics = []
 
-    for connector in connectors:
+    all_connectors = get_all_connectors()
+
+    for connector in all_connectors:
         connector_config = get_connector_config_by_name(connector)
 
         for topic in connector_config["topics"].split(", "):
             if topic.startswith("ODS_"):
-                used_topics.append(topic)
+                used_ods_topics.append(topic)
+
+    return used_ods_topics
 
 
-def find_all_dependencies_of_stream_by_name(name):
-    headers = {"Content-Type": "application/json"}
-    payload = {"ksql": "DESCRIBE {};".format(name)}
-    response = requests.post(URL, headers=headers, json=payload)
+def get_unused_ods_streams():
+    unused_ods_streams = []
 
-    if response.status_code == 200:
-        desc = response.json()[0]["sourceDescription"]
-        for readQuery in desc["readQueries"]:
-            for sink in readQuery["sinks"]:
-                find_all_dependencies_of_stream_by_name(sink)
+    used_ods_topics = get_used_ods_topics()
 
-    dependencies.append(name)
+    for stream_info in ALL_STREAMS_AND_TOPICS:
+        name = stream_info["name"]
+        topic = stream_info["topic"]
 
+        if name.startswith("ODS_") and topic not in used_ods_topics:
+            unused_ods_streams.append(name)
 
-def is_used_topic(name):
-    topic = get_stream_by_name(name)[0]["sourceDescription"]["topic"]
-
-    return topic in used_topics
+    return unused_ods_streams
 
 
-def remove_redundant_streams_and_topics():
-    source_descriptions = get_all_streams()[0]["sourceDescriptions"]
+def get_stream_flow(unused_stream):
+    stream_flow = []
 
-    for description in source_descriptions:
-        global dependencies
-        dependencies = []
+    def get_stream_flow_item(unused_stream):
+        stream_flow.append(unused_stream)
 
-        if not description["name"] in deleted_stream:
-            find_all_dependencies_of_stream_by_name(description["name"])
+        for stream_info in ALL_STREAMS_AND_TOPICS:
+            for sink in stream_info["sinks"]:
+                if sink == unused_stream:
+                    get_stream_flow_item(stream_info["name"])
 
-            if not is_used_topic(dependencies[0]):
-                for dependency in dependencies:
-                    response = drop_stream_and_delete_topic_by_name(dependency)
-                    if response.status_code == 200:
-                        deleted_stream.append(dependency)
-                        print(dependency)
+    get_stream_flow_item(unused_stream)
+
+    return stream_flow
+
+
+def create_delete_query(unused_ods_stream, stream_flows):
+    print("\n-- {}".format(unused_ods_stream))
+    for stream in stream_flows:
+        print("DROP STREAM IF EXISTS {} DELETE TOPIC;".format(stream))
 
 
 def main():
-    get_used_topics()
-    remove_redundant_streams_and_topics()
+    unused_ods_streams = get_unused_ods_streams()
 
+    for unused_ods_stream in unused_ods_streams:
+        stream_flow = get_stream_flow(unused_ods_stream)
+        create_delete_query(unused_ods_stream, stream_flow)
+
+
+ALL_STREAMS_AND_TOPICS = get_all_streams_and_topics()
 
 if __name__ == "__main__":
     main()
