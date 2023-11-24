@@ -3,14 +3,9 @@ from kconnect_services import get_all_connectors, get_connector_config_by_name
 
 
 def get_all_streams_and_topics():
-    response = list_streams_extended()
-
-    if type(response) == dict:
-        raise RuntimeError(response)
-
     all_streams_and_topics = []
 
-    source_descriptions = response[0]["sourceDescriptions"]
+    source_descriptions = list_streams_extended()[0]["sourceDescriptions"]
 
     for source_description in source_descriptions:
         sinks = []
